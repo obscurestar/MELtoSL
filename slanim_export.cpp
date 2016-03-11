@@ -80,6 +80,7 @@ class SLANIM
         void processConstraints();
         void read();
         void write();
+        void writeFloat(F32 val);
 
     private: 
         U32 mVersion;
@@ -104,14 +105,23 @@ void SLANIM::read()
     fread( &mSubversion,  sizeof(U32) , 1, mIn );
     fread( &mPriority,    sizeof(U32) , 1, mIn );
     fread( &mDuration,    sizeof(F64) , 1, mIn );
-    fread( &mEmote_len,   sizeof(U32) , 1, mIn );
-    fread( mEmote_name,   sizeof (char), mEmote_len+1, mIn ); 
+    fread( &mEmote_len,   sizeof(U32) , 1, mIn ); 
+    fread( mEmote_name,   sizeof (char), mEmote_len, mIn ); 
     fread( &mLoop_time,   sizeof(F64) , 2, mIn );
     fread( &mLoop,        sizeof(U32) , 1, mIn );
     fread( &mEase_time,   sizeof(F64) , 2, mIn );
     fread( &mHand_poses,   sizeof(U32) , 1, mIn );
     fread( &mNum_motions, sizeof(U32) , 1, mIn );
 
+    cout << "Read Ver: " << mVersion << "." << mSubversion << " Priority: " << mPriority 
+         << " Dur: "     << mDuration << " Name: " << mEmote_name << " Looping: " << mLoop 
+         << ":" << mLoop_time[0] << ", " <<  mLoop_time[1] << " Ease: " << mEase_time[0] 
+         << ", " << mEase_time[1] <<  " Hands: " << mHand_poses << endl;
+}
+
+void SLANIM::writeFloat(F32 val)
+{
+    fwrite (&val, sizeof(F32), 1, mOut);
 }
 
 void SLANIM::write()
@@ -120,14 +130,14 @@ void SLANIM::write()
     //Who needs to cast when you can truncate with fwrite!
     fwrite( &mVersion,     sizeof(U16), 1, mOut );
     fwrite( &mSubversion,  sizeof(U16), 1, mOut );
-    fwrite( &mDuration,    sizeof(U32), 1, mOut );
-    fwrite( &mEmote_len,   sizeof(U32), 1, mOut );
+    fwrite( &mPriority,    sizeof(U32), 1, mOut );
+    writeFloat( mDuration );
     fwrite( mEmote_name,  sizeof(char), mEmote_len, mOut );
-    fwrite( &mLoop_time[0], sizeof(F32), 1, mOut );
-    fwrite( &mLoop_time[1], sizeof(F32), 1, mOut );
+    writeFloat( mLoop_time[0] );
+    writeFloat( mLoop_time[1] );
     fwrite( &mLoop,        sizeof(U32), 1, mOut );      //There's the bool again.
-    fwrite( &mEase_time[0], sizeof(F32), 1, mOut );
-    fwrite( &mEase_time[1], sizeof(F32), 1, mOut );
+    writeFloat( mEase_time[0] );
+    writeFloat( mEase_time[1] );
     fwrite( &mHand_poses,  sizeof(U32), 1, mOut );
     fwrite( &mNum_motions,   sizeof(U32), 1, mOut );
 }
@@ -140,11 +150,18 @@ void SLANIM::processJointMotions(F64 min, F64 max)
     fread( &num_keys, sizeof(U32), 1, mIn );
     fwrite( &num_keys, sizeof(U32), 1, mOut );
 
+    cout << "   Processing " << num_keys << " keys " << endl;
     for ( int i = 0;   i < num_keys;   ++i )
     {
         F64 vals[4];    //Time, X, Y, and Z all come in as F64 and go out as u16s
 
         fread(&vals, sizeof(F64), 4, mIn );
+cout << "Read values ";
+for(int j=0;j<4;++j)
+{
+    cout << vals[j] << ", ";
+}
+cout << endl;
 
         //Time index of the keyframe is clamped between 0 and duration of animation. 
         U16 v = F64_to_U16(vals[0], 0.0, mDuration);
@@ -160,6 +177,7 @@ void SLANIM::processJointMotions(F64 min, F64 max)
 
 void SLANIM::processJoints()
 {
+    cout << "Processing " << mNum_motions << " joint motions. " << endl;
     for ( int i=0;   i < mNum_motions;   ++i )
     {
         U32 slen;
@@ -167,12 +185,13 @@ void SLANIM::processJoints()
         U32 priority;
         
         fread( &slen, sizeof(U32), 1, mIn );
-        fread( name,  sizeof(char), slen+1, mIn );
+        fread( name,  sizeof(char), slen, mIn );
         fread( &priority, sizeof(U32), 1, mIn );
 
-        fwrite( &slen, sizeof(U32), 1, mOut );
         fwrite( name, sizeof(char), slen, mOut );
         fwrite( &priority, sizeof(U32), 1, mOut );
+
+        cout << "Joint: " << name << " priority " << priority << endl;
 
         processJointMotions(-1.0, 1.0); //Rotations
         processJointMotions(-5.0, 5.0); //Positions
@@ -205,7 +224,7 @@ int main(int argc, char **argv)
     }
 
     FILE* in = fopen(argv[1], "rb");
-    FILE* out = fopen(argv[1], "wb");
+    FILE* out = fopen(argv[2], "wb");
 
     SLANIM inhdr (in, out);
 

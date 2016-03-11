@@ -265,34 +265,55 @@ global proc float FrameToTime(int $frameno)
     return $relative;
 }
 
-global proc float[] getRotation( string $node )
+global proc float[] getRotation( string $psNode )
 {
     global string $gsRootJoint;
 
     float $rot[];
 
-    string $roto=`xform -q -roo $node`;	//Get rotate order
+    string $roto=`xform -q -roo $psNode`;	//Get rotate order
 
-    xform -p true -roo "xyz" $node;		//Force to  XYZ rotate order.
+    xform -p true -roo "xyz" $psNode;		//Force to  XYZ rotate order.
 
-    if ($gsRootJoint==$node)                //Use world space for root joint rotations.
+    if ($gsRootJoint==$psNode)                //Use world space for root joint rotations.
     {
-        $rot=`xform -ws -q -ro $node`; 	//Get rotation.
+        $rot=`xform -ws -q -ro $psNode`; 	//Get rotation.
     } 
     else 
     {
-        $rot=`xform -os -q -ro $node`; 	//Get rotation.
+        $rot=`xform -os -q -ro $psNode`; 	//Get rotation.
     }
 
-    xform -p true -roo $roto $node;		//Return to current orient.
+    xform -p true -roo $roto $psNode;		//Return to current orient.
 
     return $rot;
+}
+
+//Comparing floats is apparently stupid in Maya and we don't need 64-bit precision anyhow. 
+global proc int closeTo ( float $a, float $b )
+{
+    float $diff;
+
+    if ($a > $b)
+    {
+        $diff = ( $a - $b );
+    }
+    else
+    {
+        $diff = ( $b - $a );
+    }
+
+    if ( $diff < 0.00005 )
+    {
+        return 1;
+    }
+    return 0;
 }
 
 //Finds the next frame where this node has a change in position or rotation.
 //Returns frameno and keys changed
 //SPATTERS TODO reduce linear keys to start and end.
-global proc int[] FindNextChange ( string $node, int $current_frame, int $types )
+global proc int[] FindNextChange ( string $psNode, int $current_frame, int $types )
 {
     global int $giRange[];
     global int $ROT, $POS;
@@ -304,8 +325,8 @@ global proc int[] FindNextChange ( string $node, int $current_frame, int $types 
 
     currentTime $current_frame;     //Go to current frame.
 
-    float $spos[]=`xform -r -os -q -t $node`; 
-    float $srot[]=getRotation($node);
+    float $spos[]=`xform -r -os -q -t $psNode`; 
+    float $srot[]=getRotation($psNode);
 
     int $i;
     for ( $i=$current_frame+1; $i < $giRange[1]; $i++ )
@@ -313,35 +334,37 @@ global proc int[] FindNextChange ( string $node, int $current_frame, int $types 
         currentTime $i;
 
         //YOU SUCK MEL!
-        float $nextpos[]=`xform -r -os -q -t $node`; 
-        float $nextrot[]=getRotation($node);
+        //SPATTERS FIX PRP float $nextpos[]=`xform -r -os -q -t $psNode`; 
+        float $nextrot[]=getRotation($psNode);
 
         //MEL AM TOO DUMB REUSE ARRAY YOU FIX FOR MEL
         for($j=0;$j<3;$j++)
         {
-            $gfNextPos[$j] = $nextpos[$j];
+            //SPATTERS FIX PRP $gfNextPos[$j] = $nextpos[$j];
             $gfNextRot[$j] = $nextrot[$j];
         }   
         //Kiss my grits.
 
-        if ($node=="rShldr")
+        if ($psNode=="mShoulderRight")
         {
-           //SPATTERS re-enable after fixing parent relative position.
-           // print("Src Frame:  " + $current_frame + " ROT: " + $srot[0] + ", " + $srot[1] + ", " + $srot[2] + " POS: " + $spos[0] + ", " + $spos[1] + ", " + $spos[2] + " Cur Frame: " + $i + " ROT: " + $gfNextRot[0] + ", " + $gfNextRot[1] + ", " + $gfNextRot[2] + " POS: " + $gfNextPos[0] + ", " + $gfNextPos[1] + ", " + $gfNextPos[2] + "\n");
+           print("Src Frame:  " + $current_frame + " ROT: " + $srot[0] + ", " + $srot[1] + ", " + $srot[2] + " Cur Frame: " + $i + " ROT: " + $gfNextRot[0] + ", " + $gfNextRot[1] + ", " + $gfNextRot[2] + "\n");
         }
 
+        //SPATTERS uncomment after fixing parent relative rotations
+        /*
         if ( $spos[0] != $gfNextPos[0] ||
              $spos[1] != $gfNextPos[1] ||
              $spos[2] != $gfNextPos[2] )
         { 
             $result[1] = $POS;
         }
+        */
         
-        if(  $srot[0] != $gfNextRot[0] ||
-             $srot[1] != $gfNextRot[1] ||
-             $srot[2] != $gfNextRot[2] )
+        if(  closeTo( $srot[0],  $gfNextRot[0]) ||
+             closeTo( $srot[1],  $gfNextRot[1]) ||
+             closeTo( $srot[2],  $gfNextRot[2]) )
         {
-            $result[1] += $ROT;
+            $result[1] = $ROT; //SPATTERS chante to += after fixing PRP.
         }
 
         if ($result[1] > 0)
@@ -351,6 +374,7 @@ global proc int[] FindNextChange ( string $node, int $current_frame, int $types 
                  ( $types == $ROT && $result[1] == $ROT ) || 
                  ( $types == $POS && $result[1] == $POS ) )
             {
+                print ("Found a change in " + $psNode +  " result is " + $result[1] + "\n");
                 $result[0] = $i;
                 return $result;
             }
@@ -379,16 +403,13 @@ global proc int GetActiveJoints()
     //Loop through joints.
     for ( $i=0; $i < $giNumJoints; $i++ )
     {
+print ("Looking for change in " + $gsJointNames[$i] + "\n");
         //SPATTERS change back to POS+ROT when parent relative maths done.
         //int $change[] = FindNextChange( $gsJointNames[$i], $giRange[0], ($POS+$ROT) );
         int $change[] = FindNextChange( $gsJointNames[$i], $giRange[0], ($ROT) );
 
-        string $node = $gsJointNames[$i];
+        string $lsNode = $gsJointNames[$i];
 
-        if ($node=="rShldr")
-        {
-            print ("First check changes are " + $change[0] + ", " + $change[1] + "\n");
-        }
         //If this joint has motion, do something with it.
         if ($change[0] != -1)
         {
@@ -397,9 +418,9 @@ global proc int GetActiveJoints()
             $giNumActiveJoints++;
             $giActiveJointRotCount[$active] = 0;
             $giActiveJointPosCount[$active] = 0;
-            if (`attributeExists "priority" $node`) 
+            if (`attributeExists "priority" $lsNode`) 
             {
-                $giActiveJointPriority[$active]  = `getAttr $node.priority`;
+                $giActiveJointPriority[$active]  = `getAttr $lsNode.priority`;
             }
             else
             {
@@ -419,8 +440,8 @@ global proc int GetActiveJoints()
                     $giActiveJointRotCount[$active] = $giActiveJointRotCount[$active] + 1;
                 }
                 //SPATTERS fix parent relative positions and re-enable.
-                //int $change2[] = FindNextChange( $node, $change[0], ($POS+$ROT) );
-                int $change2[] = FindNextChange( $node, $change[0], ($ROT) );
+                //int $change2[] = FindNextChange( $lsNode, $change[0], ($POS+$ROT) );
+                int $change2[] = FindNextChange( $lsNode, $change[0], ($ROT) );
      
                 //WHY YOU SO STUPID MEL?
                 $change[0] = $change2[0];
@@ -438,8 +459,8 @@ global proc string GetNodeName(int $joint)
 {
     global string $gsJointNames[];
     global int $giActiveJointList[];
-    string $node = $gsJointNames[ ( $giActiveJointList[$joint] ) ];
-    return $node;
+    string $lsNode = $gsJointNames[ ( $giActiveJointList[$joint] ) ];
+    return $lsNode;
 }
 
 //Wow the fwrite function really really stinks.
@@ -451,6 +472,16 @@ global proc WriteFrameToTime(int $frameno)
     fwrite $ghFile $result;
 }
 
+global proc WriteString( string $str )
+{
+    global int $ghFile;
+
+    int $str_len = `size $str` + 1;
+
+    fwrite $ghFile $str_len;
+    fwrite $ghFile $str;
+}
+
 global proc WriteMotionForJoint(int $joint, int $num_motions, int $mtype)
 {
     global int $ROT;
@@ -459,14 +490,15 @@ global proc WriteMotionForJoint(int $joint, int $num_motions, int $mtype)
     global float $gfNextPos[], $gfNextRot[];
 
     int $frame=$giRange[0];
-    string $node = GetNodeName($joint);
+    string $lsNode = GetNodeName($joint);
 
     fwrite $ghFile $num_motions;                //Write Num of this type of motion for this joint
 
-    print ("Writing " + $num_motions + " motions for " + $node + " type is " + $mtype + "\n");
+    print ("Writing " + $num_motions + " motions for " + $lsNode + " type is " + $mtype + "\n");
     for ( $i=0; $i<$num_motions; $i++ )
     {
-        int $result[] = FindNextChange ( $node, $frame, $mtype );
+        int $result[] = FindNextChange ( $lsNode, $frame, $mtype );
+        $frame = $result[0];        //Advance frame.
 
         if ($result[0] == -1 || $result[1] != $mtype)
         {
@@ -497,12 +529,12 @@ global proc WriteActiveJoints()
     global int $giNumActiveJoints, $ghFile;
     global int $giActiveJointRotCount[], $giActiveJointPosCount[], $giActiveJointPriority[];
 
+    print( $giNumActiveJoints + " active joints.\n");
     fwrite $ghFile $giNumActiveJoints;          //Write number of active joints. 
 
     for ( $i=0; $i < $giNumActiveJoints; $i++)
     {
-        string $node = GetNodeName($i);
-        fwrite $ghFile $node;                   //Write name of joint.
+        WriteString( GetNodeName($i) );     //Lookup name and write to file.
         fwrite $ghFile $giActiveJointPriority[$i];  //Write priority
         WriteMotionForJoint( $i, $giActiveJointRotCount[$i], $ROT);
         WriteMotionForJoint( $i, $giActiveJointPosCount[$i], $POS);
@@ -526,7 +558,6 @@ global proc WriteHeader()
     global float $gfDuration, $gfEase[2];
 
     string $emote_name = "NNNNNNNNNN";  //SPATTERS TODO figure out what emote names are for.
-    int $emote_len = `size $emote_name`;
     int $version = 1;
     int $subversion = 0;
 
@@ -534,8 +565,7 @@ global proc WriteHeader()
     fwrite $ghFile $subversion;       //Sub version
     fwrite $ghFile $giPriority; //The minimum priority for this animation.
     fwrite $ghFile $gfDuration; //
-    fwrite $ghFile $emote_len;
-    fwrite $ghFile $emote_name;
+    WriteString($emote_name);
     WriteFrameToTime($giLoop[0]); //Loop in Frame.
     WriteFrameToTime($giLoop[1]); //Loop out Frame.
     fwrite $ghFile $giLoop[2];              //Looping? T/F
