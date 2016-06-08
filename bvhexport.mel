@@ -451,7 +451,7 @@ global proc WriteBVHFrame ( int $piPass, string $psNode ) {
       if ($giBaseTranslation==1 && $giIndentLvl==0) { 		//Transform using world space.
          $p=`xform -ws -q -t $psNode`; 	//Get translation.
       } else {
-         $p=`xform -os -q -t $psNode`; 	//Get translation.
+         $p=`xform -wd -q -t $psNode`; 	//Get translation.
       }
 
       $tx=$p[0];
@@ -495,6 +495,11 @@ global proc WriteBVHFrame ( int $piPass, string $psNode ) {
      {	//End effector.
         //Xpos Ypos Zpos Xrot Zrot Yrot
         $lsTmp=$lsTmp+noScience($tx)+" "+noScience($ty)+" "+ noScience($tz) + " "+$rotation;
+        if ($psNode == "rForeArm")
+        {
+            print ("rForeArm:  " + $lsTmp + "\n");
+        }
+            
      }
       fprint $ghFile $lsTmp;
    }
