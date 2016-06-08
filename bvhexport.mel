@@ -206,6 +206,11 @@ global proc string MakeRotation (float $x, float $y, float $z, int $level) {
 
     string $rVal="";
 
+    //Do a little cleanup of our numbers for easier parsing.
+    string $srx=noScience($x);
+    string $sry=noScience($y);
+    string $srz=noScience($z);
+
     int $i;
 
     for ($i=0;$i<3;$i++)
@@ -221,9 +226,9 @@ global proc string MakeRotation (float $x, float $y, float $z, int $level) {
             $axis = $gcMinor[$i];
         }
 
-        if ($axis=="X") $rVal=$rVal+$x+" ";
-        if ($axis=="Y") $rVal=$rVal+$y+" ";
-        if ($axis=="Z") $rVal=$rVal+$z+" ";
+        if ($axis=="X") $rVal=$rVal+$srx+" ";
+        if ($axis=="Y") $rVal=$rVal+$sry+" ";
+        if ($axis=="Z") $rVal=$rVal+$srz+" ";
     }
 
    return $rVal;
@@ -291,7 +296,7 @@ global proc WriteBVHHeader ( int $piPass, string $psNode ) {
       }
 
       $lsOutput=$lsIndent+$lsOutput+"\r"+$lsIndent+"{\r";
-      $lsOutput=$lsOutput+$lsIndent+"\tOFFSET\t"+$tx+"\t"+$ty+"\t"+$tz+"\r";
+      $lsOutput=$lsOutput+$lsIndent+"\tOFFSET\t"+noScience($tx)+"\t"+noScience($ty)+"\t"+noScience($tz)+"\r";
       if ($lsChildren[0] != "") {	//End effector.
          $lsOutput=$lsOutput+$lsIndent+$lsChannels;
       }
@@ -303,26 +308,122 @@ global proc WriteBVHHeader ( int $piPass, string $psNode ) {
    }
 }
 
-//With any luck, this routine will get rid of scientific notation for us.
-global proc float NoScience (float $pfNum) {
-   if ( $pfNum > -1.0 && $pfNum < -1.0 ) { 
-      $pfNum=$pfNum/100000; 
-   } else {
-      $pfNum=$pfNum*100000;
-   }
 
-   float $tfNum=`trunc $pfNum`;
-   if (($pfNum - $tfNum) >= 0.5) {
-      $pfNum=`ceil $pfNum`;
-   } else {
-      $pfNum=`floor $pfNum`;
-   }
+//strstrr searches backwards through src to find pattern.  Returns index
+//or 0
+global proc int strstrr (string $pattern, string $src) 
+{
+    int $liPatLen=`size $pattern`-1;
+    int $i=`size $src` - $liPatLen;
 
-   $pfNum=$pfNum/100000;                          
-
-   return ($pfNum);       
+    while ($i > 0)
+    {
+        if (`substring $src $i ($i+$liPatLen)`==$pattern) 
+        {
+            return $i;
+        }
+        $i--;
+    }
+    return $i;
 }
 
+global proc string truncateDecimalString ( string $psStr, int $piPrecision )
+{
+    if ($piPrecision > 0)
+    {
+        int $point = strstrr(".", $psStr) + 1;
+        if ( $point > 1 )
+        {
+            $len = `size $psStr`;
+            if ( ($point + $piPrecision) < $len )
+            {
+                $psStr = `substring $psStr 1 ($point + $piPrecision)`;
+            }
+        }
+    }
+    return $psStr;
+}
+
+//Remove decimal from string representation of a float.
+global proc string noDecimal (string $psStr)
+{
+    int $dec = strstrr(".", $psStr);
+    int $len = `size $psStr`;
+
+    if ($dec <= 0) return $psStr;
+
+    string $lsOut = `substring $psStr 1 ($dec - 1)` + `substring $psStr ($dec+1) $len`;
+    return $lsOut;
+}
+
+//Maya provides no formatter for floats.
+global proc string noScience (float $pfNum)
+{
+    int $piPrecision = 5;
+
+    float $lfCutoff = `pow 10 ( ( -1 * ($piPrecision+1)  ) )`;
+    if ( $pfNum > ($lfCutoff * -1) && $pfNum < $lfCutoff )  //Get rid of near-0 values.
+    {
+        return "0.0";
+    }
+
+    //$pfNum =`pow 10 ( $piPrecision + 1 )`;
+
+    string $lsStr = (string)$pfNum;
+    string $lsResult="";
+    int $e = strstrr("e", $lsStr);
+
+    if ( $e <= 0 )  //No scientific notation, we're done!
+    {
+        return truncateDecimalString ( $lsStr, $piPrecision );
+    }
+
+    int $len = `size $lsStr` + 1;
+
+    if ( `substring $lsStr 1 1` == "-" )
+    {
+        $lsResult="-";
+        $len --;
+        $lsStr = `substring $lsStr 2 $len`;
+        $e--;
+    }
+        
+    int $len = `size $lsStr`;
+    string $val = noDecimal ( `substring $lsStr 1 ($e - 1)` );
+
+    $e++;
+    int $neg=0;
+    if ( `substring $lsStr $e $e` == "-" )
+    {
+        $neg=1;
+        $e++;
+    }
+
+    int $exp = (int) `substring $lsStr $e $len`;
+
+    if ($neg)
+    {
+        $lsResult = $lsResult + "0.";
+        $exp --;
+    }
+    else
+    {
+        $lsResult = $lsResult + $val;
+    }
+
+    int $i;
+    for ($i = 0; $i< $exp; $i++)
+    {
+        $lsResult = $lsResult + "0";
+    }
+
+    if ($neg)
+    {
+        $lsResult = $lsResult + $val;
+    }
+
+    return truncateDecimalString ( $lsResult, $piPrecision );
+}
 //WriteBVHFrame uses the global giFrameNo to identify the current frame
 //and pulls data from it to write to gFile.
 //Note of particular interest:  The rotate fields are stored in the 
@@ -388,17 +489,12 @@ global proc WriteBVHFrame ( int $piPass, string $psNode ) {
       $ry= rad_to_deg(atan2($D, $A * $C));
       $rz= rad_to_deg(atan2(-1 * $B * $D * $E + $A * $F, $B * $D * $F + $A  * $E));
 
-      //Do a little cleanup of our numbers for easier parsing.
-      $rx=NoScience($rx);
-      $ry=NoScience($ry);
-      $rz=NoScience($rz);
-
       $rotation=MakeRotation($rx,$ry,$rz,$giIndentLvl);
         string $lsTmp="";
      if ($lsChildren[0] != "") 
      {	//End effector.
         //Xpos Ypos Zpos Xrot Zrot Yrot
-        $lsTmp=$lsTmp+$tx+" "+$ty+" "+ $tz + " "+$rotation;
+        $lsTmp=$lsTmp+noScience($tx)+" "+noScience($ty)+" "+ noScience($tz) + " "+$rotation;
      }
       fprint $ghFile $lsTmp;
    }
@@ -569,8 +665,8 @@ global proc int OnOkay () {
 
    float $lfSampleRate = 1.0/30.0;		//Float is for FPS.
    
-   $lfSampleRate = NoScience($lfSampleRate * (float)$giSampleRate);	//FPS.
-   $lsTmp = "Frame Time: " + (string)$lfSampleRate + "\r";
+   $lfSampleRate = $lfSampleRate * (float)$giSampleRate;	//FPS.
+   $lsTmp = "Frame Time: " + noScience($lfSampleRate) + "\r";
    
    fprint $ghFile $lsTmp;
 
